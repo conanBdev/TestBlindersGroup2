@@ -42,7 +42,7 @@ class Dbjointpurchase extends Module
 
         $this->name = 'dbjointpurchase';
         $this->tab = 'front_office_features';
-        $this->version = '1.0.1';
+        $this->version = '1.1.0';
         $this->author = 'DevBlinders';
         $this->need_instance = 0;
 
@@ -65,16 +65,25 @@ class Dbjointpurchase extends Module
      */
     public function install()
     {
+        //Crear tablas de la base de datos.
+        include(dirname(__FILE__).'/sql/install.php');
+        $this->createTabs();
+
         Configuration::updateValue('DBJOINT_COLOR', '#2fb5d2');
         Configuration::updateValue('DBJOINT_EXCLUDE', '');
         return parent::install() &&
             $this->registerHook('displayHeader') &&
             $this->registerHook('displayBackOfficeHeader') &&
+            $this->registerHook('displayProductsRelated') &&
             $this->registerHook('displayFooterProduct');
     }
 
     public function uninstall()
     {
+        //Eliminar tablas de la base de datos.
+        include(dirname(__FILE__).'/sql/uninstall.php');
+        $this->deleteTabs();
+
         return parent::uninstall();
     }
 
@@ -227,6 +236,27 @@ class Dbjointpurchase extends Module
             }
         </style>';
         return $inline;
+    }
+
+    /**
+     * Implementa el hook displayProductsRelated para mostrar los productos relacionados.
+     */
+    public function hookDisplayProductsRelated($params)
+    {
+        $id_product = $params['product']['id_product'];
+
+        // Obtén todos los productos de la tienda.
+        $all_products = $this->getAllProducts();
+    
+        // Obtén los productos relacionados desde la base de datos.
+        $related_products = $this->getRelatedProductsFromDb($id_product);
+    
+        // Asigna los productos y los productos relacionados a la plantilla.
+        $this->context->smarty->assign('all_products', $all_products);
+        $this->context->smarty->assign('related_products', $related_products);
+    
+        // Devuelve el HTML que se mostrará en la ficha de productos.
+        return $this->display('module:dbjointpurchase/views/templates/hook/product_related.tpl');
     }
 
     public function hookDisplayFooterProduct($params)
@@ -429,5 +459,46 @@ class Dbjointpurchase extends Module
         }
 
         return $excludes;
+    }
+
+    /**
+     * Devuelve todos los productos de la tienda que se encuantran activos.
+     */
+    private function getAllProducts()
+    {
+        $sql = 'SELECT p.*, pl.name 
+                FROM ' . _DB_PREFIX_ . 'product p
+                JOIN ' . _DB_PREFIX_ . 'product_lang pl ON p.id_product = pl.id_product
+                WHERE p.active = 1 AND pl.id_lang = ' . (int)Context::getContext()->language->id;
+
+        $all_products = Db::getInstance(_PS_USE_SQL_SLAVE_)->executeS($sql);
+        return $all_products;
+    }
+
+    /**
+     * Devuelve los productos relacionados con el producto seleccionado desde la base de datos.
+     */
+    private function getRelatedProductsFromDb($id_product)
+    {
+        // Consulta SQL para obtener las IDs de los productos relacionados.
+        $sql_product = 'SELECT id_first_product_related, id_second_product_related, id_third_product_related FROM ' . _DB_PREFIX_ . 'dbjoinpurchase_products_related WHERE id_product = ' . (int)$id_product;
+        $related_products_ids = Db::getInstance(_PS_USE_SQL_SLAVE_)->executeS($sql_product);
+        $related_products = array();
+
+        // Si hay productos relacionados, obtén los datos de los productos.
+        if (!empty($related_products_ids)) {
+            foreach ($related_products_ids as $product_ids) {
+                foreach ($product_ids as $id) {
+                    $sql = 'SELECT * FROM ' . _DB_PREFIX_ . 'product WHERE id_product = ' . (int)$id;
+                    $product = Db::getInstance(_PS_USE_SQL_SLAVE_)->executeS($sql);
+                    if (!empty($product)) {
+                        $related_products[] = $product[0];                        
+                    }
+                }
+            }
+            return $related_products;
+        }else{
+            return $related_products;
+        }        
     }
 }
