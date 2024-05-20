@@ -67,14 +67,15 @@ class Dbjointpurchase extends Module
     {
         //Crear tablas de la base de datos.
         include(dirname(__FILE__).'/sql/install.php');
-        $this->createTabs();
+
 
         Configuration::updateValue('DBJOINT_COLOR', '#2fb5d2');
         Configuration::updateValue('DBJOINT_EXCLUDE', '');
+        
         return parent::install() &&
             $this->registerHook('displayHeader') &&
             $this->registerHook('displayBackOfficeHeader') &&
-            $this->registerHook('displayProductsRelated') &&
+            $this->registerHook('displayAdminProductsMainStepLeftColumnBottom') &&
             $this->registerHook('displayFooterProduct');
     }
 
@@ -82,8 +83,6 @@ class Dbjointpurchase extends Module
     {
         //Eliminar tablas de la base de datos.
         include(dirname(__FILE__).'/sql/uninstall.php');
-        $this->deleteTabs();
-
         return parent::uninstall();
     }
 
@@ -209,6 +208,11 @@ class Dbjointpurchase extends Module
             $this->context->controller->addJS($this->_path . '/views/js/back.js');
             $this->context->controller->addCSS($this->_path . '/views/css/back.css');
         }
+
+        if (Tools::getValue('controller') == 'AdminProducts') {
+            $this->context->controller->addJS($this->_path.'views/js/product_card.js');
+            $this->context->controller->addCSS($this->_path . '/views/css/adminProduct.css');
+        }
     }
 
     /**
@@ -238,29 +242,8 @@ class Dbjointpurchase extends Module
         return $inline;
     }
 
-    /**
-     * Implementa el hook displayProductsRelated para mostrar los productos relacionados.
-     */
-    public function hookDisplayProductsRelated($params)
-    {
-        $id_product = $params['product']['id_product'];
-
-        // Obtén todos los productos de la tienda.
-        $all_products = $this->getAllProducts();
-    
-        // Obtén los productos relacionados desde la base de datos.
-        $related_products = $this->getRelatedProductsFromDb($id_product);
-    
-        // Asigna los productos y los productos relacionados a la plantilla.
-        $this->context->smarty->assign('all_products', $all_products);
-        $this->context->smarty->assign('related_products', $related_products);
-    
-        // Devuelve el HTML que se mostrará en la ficha de productos.
-        return $this->display('module:dbjointpurchase/views/templates/hook/product_related.tpl');
-    }
-
     public function hookDisplayFooterProduct($params)
-    {
+    {//asdasd
         $product = $params['product'];
         $id_product = $params['product']->id;
         $key = 'dbjointpurchase|' . $id_product;
@@ -301,76 +284,91 @@ class Dbjointpurchase extends Module
 
     public function getProductsGenerate($id_product)
     {
-        $excludes = $this->getProductsExcludes();
-
-        $products = [];
-        $sql = "SELECT od.product_id, count(od.product_id) as total, p.price, p.id_category_default
-                FROM " . _DB_PREFIX_ . "order_detail od 
-                LEFT JOIN " . _DB_PREFIX_ . "product_shop p ON od.product_id = p.id_product
-                " . Shop::addSqlAssociation('product', 'p') . "
-                " . Product::sqlStock('p', 0) . "
-                WHERE od.product_id > 0 
-                    AND od.product_id <> '$id_product' 
-                    AND od.id_order IN (SELECT id_order 
-                                        FROM " . _DB_PREFIX_ . "order_detail 
-                                        WHERE product_id = '$id_product' 
-                                        GROUP BY id_order)
-                    AND p.active = 1 
-                    AND p.available_for_order = 1  
-                    AND p.visibility != 'none' 
-                    AND p.price > 0
-                    AND (stock.out_of_stock = 1 OR stock.quantity > 0)";
-        if (!empty($excludes)) {
-            $sql .= " AND od.product_id NOT IN (" . $excludes . ")";
-        }
-        $sql .= "GROUP BY p.id_category_default
-                HAVING COUNT(*) > 1 
-                ORDER BY total DESC
-                LIMIT 3";
-        $results = Db::getInstance()->ExecuteS($sql);
-        if (count($results) >= 1) {
-            foreach ($results as $row) {
-                $products[$row['id_category_default']][] = array(
-                    'id_product' => $row['product_id'],
+        $results = $this->getProductsPurchasedTogether($id_product);
+        //Comprobamos si hay productos comprados juntos habitualmente puestos manuelmente.
+        if($results != false){
+            $products = [];
+            foreach ($results as $key => $row) {
+                $products[$key][] = array(
+                    'id_product' => $row['id_product'],
                     'price' => $row['price'],
                 );
             }
-
             return $products;
-        } else {
-            //$product = new Product($id_product);
-            //$id_category_default = $product->id_category_default;
+        }else{
+            //Si no hay productos comprados juntos habitualmente puestos manuelmente, buscamos los productos relacionados en la base de datos.
+            $excludes = $this->getProductsExcludes();
 
-            // Si no hay productos relacionados en los pedidos buscamos el top ventas de la categoria asociada
+            $products = [];
             $sql = "SELECT od.product_id, count(od.product_id) as total, p.price, p.id_category_default
-                FROM " . _DB_PREFIX_ . "order_detail od
-                LEFT JOIN " . _DB_PREFIX_ . "product p ON od.product_id = p.id_product
-                LEFT JOIN " . _DB_PREFIX_ . "product_shop ps ON od.product_id = ps.id_product
-                " . Shop::addSqlAssociation('product', 'p') . "
-                " . Product::sqlStock('p', 0) . "
-                WHERE ps.active = 1 
-                    AND p.available_for_order = 1  
-                    AND p.visibility != 'none' 
-                    AND p.price > 0
-                    AND (stock.out_of_stock = 1 OR stock.quantity > 0)";
+                    FROM " . _DB_PREFIX_ . "order_detail od 
+                    LEFT JOIN " . _DB_PREFIX_ . "product_shop p ON od.product_id = p.id_product
+                    " . Shop::addSqlAssociation('product', 'p') . "
+                    " . Product::sqlStock('p', 0) . "
+                    WHERE od.product_id > 0 
+                        AND od.product_id <> '$id_product' 
+                        AND od.id_order IN (SELECT id_order 
+                                            FROM " . _DB_PREFIX_ . "order_detail 
+                                            WHERE product_id = '$id_product' 
+                                            GROUP BY id_order)
+                        AND p.active = 1 
+                        AND p.available_for_order = 1  
+                        AND p.visibility != 'none' 
+                        AND p.price > 0
+                        AND (stock.out_of_stock = 1 OR stock.quantity > 0)";
             if (!empty($excludes)) {
                 $sql .= " AND od.product_id NOT IN (" . $excludes . ")";
             }
-            $sql .= " GROUP BY od.product_id 
-                HAVING COUNT(*) > 1 
-                ORDER BY total DESC
-                LIMIT 3";
+            $sql .= "GROUP BY p.id_category_default
+                    HAVING COUNT(*) > 1 
+                    ORDER BY total DESC
+                    LIMIT 3";
             $results = Db::getInstance()->ExecuteS($sql);
             if (count($results) >= 1) {
-                foreach ($results as $key => $row) {
-                    $products[$key][] = array(
+                foreach ($results as $row) {
+                    $products[$row['id_category_default']][] = array(
                         'id_product' => $row['product_id'],
                         'price' => $row['price'],
                     );
                 }
+
                 return $products;
+            } else {
+                //$product = new Product($id_product);
+                //$id_category_default = $product->id_category_default;
+
+                // Si no hay productos relacionados en los pedidos buscamos el top ventas de la categoria asociada
+                $sql = "SELECT od.product_id, count(od.product_id) as total, p.price, p.id_category_default
+                    FROM " . _DB_PREFIX_ . "order_detail od
+                    LEFT JOIN " . _DB_PREFIX_ . "product p ON od.product_id = p.id_product
+                    LEFT JOIN " . _DB_PREFIX_ . "product_shop ps ON od.product_id = ps.id_product
+                    " . Shop::addSqlAssociation('product', 'p') . "
+                    " . Product::sqlStock('p', 0) . "
+                    WHERE ps.active = 1 
+                        AND p.available_for_order = 1  
+                        AND p.visibility != 'none' 
+                        AND p.price > 0
+                        AND (stock.out_of_stock = 1 OR stock.quantity > 0)";
+                if (!empty($excludes)) {
+                    $sql .= " AND od.product_id NOT IN (" . $excludes . ")";
+                }
+                $sql .= " GROUP BY od.product_id 
+                    HAVING COUNT(*) > 1 
+                    ORDER BY total DESC
+                    LIMIT 3";
+                $results = Db::getInstance()->ExecuteS($sql);
+                if (count($results) >= 1) {
+                    foreach ($results as $key => $row) {
+                        $products[$key][] = array(
+                            'id_product' => $row['product_id'],
+                            'price' => $row['price'],
+                        );
+                    }
+                    return $products;
+                }
             }
         }
+
         return false;
     }
 
@@ -462,43 +460,143 @@ class Dbjointpurchase extends Module
     }
 
     /**
-     * Devuelve todos los productos de la tienda que se encuantran activos.
+     * HOOK BO para mostrar el bloque de productos "Comprados juntos habitualmente" en
+     * la página de producto.
      */
-    private function getAllProducts()
+    public function hookDisplayAdminProductsMainStepLeftColumnBottom($params)
     {
-        $sql = 'SELECT p.*, pl.name 
-                FROM ' . _DB_PREFIX_ . 'product p
-                JOIN ' . _DB_PREFIX_ . 'product_lang pl ON p.id_product = pl.id_product
-                WHERE p.active = 1 AND pl.id_lang = ' . (int)Context::getContext()->language->id;
+        if ($this->isSymfonyContext() && $params['route'] === 'admin_product_form') {
+            $shop = new Shop((int)$this->context->shop->id);
+            $base_url = $shop->getBaseURL();
+            $ajax = $base_url . 'modules/dbjointpurchase/controllers/admin/ajax.php?token=' . Tools::encrypt('dbjointpurchase/controllers/admin/ajax.php');
 
-        $all_products = Db::getInstance(_PS_USE_SQL_SLAVE_)->executeS($sql);
-        return $all_products;
+            $this->context->smarty->assign(array(
+                'title' => 'Pack de productos recomendados',
+                'ajax_url' => $ajax,
+                'id_product' => $params['id_product'],
+            ));
+
+            return $this->fetch('module:dbjointpurchase/views/templates/hook/recommendedPack.tpl');
+        }
     }
 
     /**
-     * Devuelve los productos relacionados con el producto seleccionado desde la base de datos.
+     * Devuelve los productos que se compran juntos habitualmente con el producto seleccionado.
      */
-    private function getRelatedProductsFromDb($id_product)
+    public function getProductsPurchasedTogether($id_product)
     {
-        // Consulta SQL para obtener las IDs de los productos relacionados.
-        $sql_product = 'SELECT id_first_product_related, id_second_product_related, id_third_product_related FROM ' . _DB_PREFIX_ . 'dbjoinpurchase_products_related WHERE id_product = ' . (int)$id_product;
-        $related_products_ids = Db::getInstance(_PS_USE_SQL_SLAVE_)->executeS($sql_product);
-        $related_products = array();
-
-        // Si hay productos relacionados, obtén los datos de los productos.
-        if (!empty($related_products_ids)) {
-            foreach ($related_products_ids as $product_ids) {
-                foreach ($product_ids as $id) {
-                    $sql = 'SELECT * FROM ' . _DB_PREFIX_ . 'product WHERE id_product = ' . (int)$id;
-                    $product = Db::getInstance(_PS_USE_SQL_SLAVE_)->executeS($sql);
-                    if (!empty($product)) {
-                        $related_products[] = $product[0];                        
-                    }
-                }
+        $sql = 'SELECT * FROM ' . _DB_PREFIX_ . 'dbjoinpurchase_purchased_together dbpt WHERE dbpt.id_product = ' .$id_product. ';';
+        $results = Db::getInstance()->executeS($sql);
+    
+        if (!empty($results)) {
+            $ids_products = $results[0]; // Get the first row of results
+    
+            $allIDs = '';
+            if($ids_products['id_first_purchased_together'] != null){
+                $allIDs .= ' ' . $ids_products['id_first_purchased_together'] . ',';
             }
-            return $related_products;
+            if($ids_products['id_second_purchased_together'] != null){
+                $allIDs .= ' ' . $ids_products['id_second_purchased_together'] . ',';
+            }
+            if($ids_products['id_third_purchased_together'] != null){
+                $allIDs .= ' ' . $ids_products['id_third_purchased_together'] . ',';
+            }
+            $allIDs = rtrim($allIDs, ',');
+    
+            $sql2 = 'SELECT p.*, pl.name, i.id_image AS image_url
+            FROM ' . _DB_PREFIX_ . 'product p
+            JOIN ' . _DB_PREFIX_ . 'product_lang pl ON p.id_product = pl.id_product
+            LEFT JOIN ' . _DB_PREFIX_ . 'image i ON p.id_product = i.id_product AND i.cover = 1
+            WHERE p.active = 1 AND pl.id_lang = ' . (int)Context::getContext()->language->id . '
+            AND p.id_product IN (' .$allIDs. ');';
+
+            $products = Db::getInstance()->executeS($sql2);
+            return $products;
         }else{
-            return $related_products;
-        }        
+            return false;
+        }
+    }
+
+    /**
+     * Devuelve todos los productos de la tienda que se encuantran activos y que coinciden con el texto de búsqueda.
+     */
+    public function getAllMatchingProducts($search)
+    {
+        $search = str_replace(' ', '%', $search);
+
+        $sql = 'SELECT p.*, pl.name, i.id_image AS image_url
+        FROM ' . _DB_PREFIX_ . 'product p
+        JOIN ' . _DB_PREFIX_ . 'product_lang pl ON p.id_product = pl.id_product
+        LEFT JOIN ' . _DB_PREFIX_ . 'image i ON p.id_product = i.id_product AND i.cover = 1
+        WHERE p.active = 1 AND pl.id_lang = ' . (int)Context::getContext()->language->id . '
+        AND pl.name LIKE "%' . pSQL($search) . '%" LIMIT 3';
+
+        $products = Db::getInstance()->executeS($sql);
+        if (empty($products)) {
+            return false;
+        }else{
+            return $products;
+        }
+    }
+
+    /**
+     * Elimina uno de los productos de la tabla de productos comprados juntos habitualmente.
+     */
+    function removeAProductPurchasedTogether($main_product, $delete_product){
+        $sql = 'UPDATE `' . _DB_PREFIX_ . 'dbjoinpurchase_purchased_together`
+        SET 
+            `id_first_purchased_together` = IF(`id_first_purchased_together` = ' .$delete_product. ', NULL, `id_first_purchased_together`),
+            `id_second_purchased_together` = IF(`id_second_purchased_together` = ' .$delete_product. ', NULL, `id_second_purchased_together`),
+            `id_third_purchased_together` = IF(`id_third_purchased_together` = ' .$delete_product. ', NULL, `id_third_purchased_together`)
+        WHERE `id_product` = ' . $main_product . ';';
+    
+        Db::getInstance()->execute($sql);
+    
+        $sql = 'SELECT `id_first_purchased_together`, `id_second_purchased_together`, `id_third_purchased_together` 
+        FROM `' . _DB_PREFIX_ . 'dbjoinpurchase_purchased_together` 
+        WHERE `id_product` = ' . $main_product . ';';
+        $result = Db::getInstance()->executeS($sql);
+    
+        if ($result) {
+            $row = $result[0];
+            if (is_null($row['id_first_purchased_together']) && is_null($row['id_second_purchased_together']) && is_null($row['id_third_purchased_together'])) {
+                // If all columns are NULL, delete the row
+                $sql = 'DELETE FROM `' . _DB_PREFIX_ . 'dbjoinpurchase_purchased_together` 
+                WHERE `id_product` = ' . $main_product . ';';
+                Db::getInstance()->execute($sql);
+            }
+        }
+    }
+
+    /**
+     * Añade un nuevo producto a la tabla de productos comprados juntos habitualmente.
+     * En caso de que el producto de la ficha no tenga productos comprados juntos, 
+     * se inserta un nuevo registro.
+     */
+    function addProductPurchasedTogether($id_product, $new_product){
+        $sql = 'SELECT `id_first_purchased_together`, `id_second_purchased_together`, `id_third_purchased_together` 
+        FROM `' . _DB_PREFIX_ . 'dbjoinpurchase_purchased_together` 
+        WHERE `id_product` = ' . $id_product . ';';
+        $result = Db::getInstance()->executeS($sql);
+    
+        if ($result) {
+            $row = $result[0];
+            if (is_null($row['id_first_purchased_together'])) {
+                $column = 'id_first_purchased_together';
+            } elseif (is_null($row['id_second_purchased_together'])) {
+                $column = 'id_second_purchased_together';
+            } else {
+                $column = 'id_third_purchased_together';
+            }
+    
+            $sql = 'UPDATE `' . _DB_PREFIX_ . 'dbjoinpurchase_purchased_together`
+                SET `' . $column . '` = ' . $new_product . '
+                WHERE `id_product` = ' . $id_product . ';';
+        } else {
+            $sql = 'INSERT INTO `' . _DB_PREFIX_ . 'dbjoinpurchase_purchased_together` 
+                (`id_product`, `id_first_purchased_together`) 
+                VALUES (' . $id_product . ', ' . $new_product . ');';
+        }
+        Db::getInstance()->execute($sql);
     }
 }

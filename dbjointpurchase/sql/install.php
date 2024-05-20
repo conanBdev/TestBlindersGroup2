@@ -21,11 +21,11 @@
 /**
  * Sentencia sql para crear la tabla de productos relacionados.
  */
-$sql = 'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'dbjoinpurchase_products_related` (
+$sql = 'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'dbjoinpurchase_purchased_together` (
     `id_product` int(11) NOT NULL AUTO_INCREMENT,
-    `id_first_product_related` int(11) DEFAULT NULL,
-    `id_second_product_related` int(11) DEFAULT NULL,
-    `id_third_product_related` int(11) DEFAULT NULL,
+    `id_first_purchased_together` int(11) DEFAULT NULL,
+    `id_second_purchased_together` int(11) DEFAULT NULL,
+    `id_third_purchased_together` int(11) DEFAULT NULL,
     PRIMARY KEY (`id_product`)
 ) ENGINE=' . _MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8;';
 

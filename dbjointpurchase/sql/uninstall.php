@@ -21,7 +21,7 @@
  /**   
   * Sentencia sql para eliminar la tabla de productos relacionados.
   */
-$sql = 'DROP TABLE IF EXISTS `' . _DB_PREFIX_ . 'dbjoinpurchase_products_related`';
+$sql = 'DROP TABLE IF EXISTS `' . _DB_PREFIX_ . 'dbjoinpurchase_purchased_together`';
 
 if (Db::getInstance()->execute($sql) == false) {
     return false;
